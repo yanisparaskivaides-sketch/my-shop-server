@@ -19,7 +19,7 @@ const pool = new Pool({
 // --- БАЗА ДАННЫХ ---
 async function initDB() {
   try {
-    // Пользователи
+    // Пользователи (с добавленным балансом)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -27,6 +27,7 @@ async function initDB() {
         email VARCHAR(255) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
         role VARCHAR(20) DEFAULT 'user',
+        balance INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
@@ -40,7 +41,7 @@ async function initDB() {
         description TEXT
       );
     `);
-    console.log("✅ БД готова");
+    console.log("✅ БД готова (с балансом)");
   } catch (err) {
     console.error("Ошибка БД:", err.message);
   }
@@ -59,9 +60,10 @@ app.post('/api/auth/register', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(password, salt);
 
+    // Добавили balance в запрос
     const user = await pool.query(
-      'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email, role',
-      [name || 'Покупатель', email, hash]
+      'INSERT INTO users (name, email, password_hash, balance) VALUES ($1, $2, $3, $4) RETURNING id, name, email, role, balance',
+      [name || 'Покупатель', email, hash, 0]
     );
 
     const token = jwt.sign(
@@ -89,7 +91,7 @@ app.post('/api/auth/login', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
-    res.json({ token, user: { id: user.rows[0].id, name: user.rows[0].name, email: user.rows[0].email, role: user.rows[0].role } });
+    res.json({ token, user: { id: user.rows[0].id, name: user.rows[0].name, email: user.rows[0].email, role: user.rows[0].role, balance: user.rows[0].balance } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -128,8 +130,41 @@ app.delete('/api/admin/products/:id', async (req, res) => {
   }
 });
 
+// --- МОНЕТЫ (БАЛАНС) ДЛЯ БОТА И ВИТРИНЫ ---
+
+// Получить баланс пользователя по Email
+app.get('/api/user/balance/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    const user = await pool.query('SELECT balance FROM users WHERE email = $1', [email]);
+    if (user.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
+    res.json({ balance: user.rows[0].balance });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Выдать монеты (Секретная команда для Discord бота)
+app.post('/api/admin/give-coins', async (req, res) => {
+  try {
+    const { email, amount } = req.body;
+    if (!email || !amount) return res.status(400).json({ error: 'Укажите email и количество монет' });
+
+    const updated = await pool.query(
+      'UPDATE users SET balance = balance + $1 WHERE email = $2 RETURNING balance',
+      [amount, email]
+    );
+    
+    if (updated.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
+    
+    res.json({ message: `✅ Выдано ${amount} монет`, new_balance: updated.rows[0].balance });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/', (req, res) => {
-  res.json({ message: '🛒 Full Shop API работает!' });
+  res.json({ message: '🛒 Full Shop API работает! (с балансом)' });
 });
 
 app.listen(PORT, () => {
