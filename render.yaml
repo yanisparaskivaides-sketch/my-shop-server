@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: my-full-shop-api
+    env: node
+    rootDir: .
+    buildCommand: npm install
+    startCommand: npm start
