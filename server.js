@@ -50,10 +50,11 @@ initDB();
 
 // --- МАРШРУТЫ ---
 
-// 1. Получить ссылку для входа через Discord
+// 1. Получить ссылку для входа через Discord (БЕЗ ЛИШНЕГО СЛЭША!)
 app.get('/api/auth/discord', (req, res) => {
   const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-  const redirectUri = `${process.env.FRONTEND_URL}/auth/discord/callback`;
+  // ВАЖНО: тут убрали слэш / после FRONTEND_URL
+  const redirectUri = `${process.env.FRONTEND_URL}auth/discord/callback`;
   const url = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=identify`;
   res.json({ url });
 });
@@ -70,7 +71,7 @@ app.get('/api/auth/discord/callback', async (req, res) => {
       client_secret: process.env.DISCORD_CLIENT_SECRET,
       code,
       grant_type: 'authorization_code',
-      redirect_uri: `${process.env.FRONTEND_URL}/auth/discord/callback`,
+      redirect_uri: `${process.env.FRONTEND_URL}auth/discord/callback`,
     }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
 
     const { access_token } = tokenResponse.data;
@@ -106,7 +107,7 @@ app.get('/api/auth/discord/callback', async (req, res) => {
       { expiresIn: '30d' }
     );
 
-    // Перенаправляем на фронтенд с токеном в параметрах
+    // Перенаправляем на фронтенд с токеном в параметрах (ссылка без слэша)
     res.redirect(`${process.env.FRONTEND_URL}?token=${token}&balance=${balance}`);
 
   } catch (error) {
