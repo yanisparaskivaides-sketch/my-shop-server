@@ -50,45 +50,43 @@ initDB();
 
 // --- МАРШРУТЫ ---
 
-// 1. Получить ссылку для входа через Discord (БЕЗ ЛИШНЕГО СЛЭША!)
+// 1. Получить ссылку для входа через Discord
 app.get('/api/auth/discord', (req, res) => {
   const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-  // ВАЖНО: тут убрали слэш / после FRONTEND_URL
-  const redirectUri = `${process.env.FRONTEND_URL}auth/discord/callback`;
+  const FRONTEND_URL = 'https://my-shop-frontend-v2.onrender.com'; // ЗАФИКСИРОВАНО!
+  const redirectUri = `${FRONTEND_URL}/auth/discord/callback`;
   const url = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=identify`;
   res.json({ url });
 });
 
-// 2. Обработка колбэка от Discord (обмен кода на токен и данные)
+// 2. Обработка колбэка от Discord
 app.get('/api/auth/discord/callback', async (req, res) => {
   const { code } = req.query;
   if (!code) return res.status(400).json({ error: 'Нет кода авторизации' });
 
   try {
-    // Меняем код на токен
+    const FRONTEND_URL = 'https://my-shop-frontend-v2.onrender.com'; // ЗАФИКСИРОВАНО!
+
     const tokenResponse = await axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
       client_id: process.env.DISCORD_CLIENT_ID,
       client_secret: process.env.DISCORD_CLIENT_SECRET,
       code,
       grant_type: 'authorization_code',
-      redirect_uri: `${process.env.FRONTEND_URL}auth/discord/callback`,
+      redirect_uri: `${FRONTEND_URL}/auth/discord/callback`,
     }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
 
     const { access_token } = tokenResponse.data;
 
-    // Получаем данные пользователя из Discord
     const userResponse = await axios.get('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${access_token}` },
     });
 
     const { id, username, avatar } = userResponse.data;
 
-    // Проверяем, есть ли юзер в нашей базе
     let user = await pool.query('SELECT * FROM users WHERE discord_id = $1', [id]);
 
     let balance = 0;
     if (user.rows.length === 0) {
-      // Если нет - создаем с 0 монет
       const avatarUrl = avatar ? `https://cdn.discordapp.com/avatars/${id}/${avatar}.png` : null;
       const newUser = await pool.query(
         'INSERT INTO users (discord_id, name, avatar_url, balance) VALUES ($1, $2, $3, $4) RETURNING id, name, avatar_url, balance',
@@ -100,23 +98,22 @@ app.get('/api/auth/discord/callback', async (req, res) => {
       balance = user.rows[0].balance;
     }
 
-    // Генерируем наш JWT токен для сайта
     const token = jwt.sign(
       { id: user.rows[0].id, discord_id: id, name: username },
       process.env.JWT_SECRET,
       { expiresIn: '30d' }
     );
 
-    // Перенаправляем на фронтенд с токеном в параметрах (ссылка без слэша)
-    res.redirect(`${process.env.FRONTEND_URL}?token=${token}&balance=${balance}`);
+    res.redirect(`${FRONTEND_URL}?token=${token}&balance=${balance}`);
 
   } catch (error) {
     console.error('Ошибка Discord OAuth:', error.response?.data || error.message);
-    res.redirect(`${process.env.FRONTEND_URL}?error=auth_failed`);
+    const FRONTEND_URL = 'https://my-shop-frontend-v2.onrender.com';
+    res.redirect(`${FRONTEND_URL}?error=auth_failed`);
   }
 });
 
-// 3. Получить данные текущего пользователя по токену
+// 3. Получить данные пользователя
 app.get('/api/user/me', async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'Нет токена' });
@@ -131,7 +128,7 @@ app.get('/api/user/me', async (req, res) => {
   }
 });
 
-// --- ТОВАРЫ И МОНЕТЫ (старые маршруты) ---
+// --- ТОВАРЫ И МОНЕТЫ ---
 app.get('/api/products', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM products ORDER BY id ASC');
